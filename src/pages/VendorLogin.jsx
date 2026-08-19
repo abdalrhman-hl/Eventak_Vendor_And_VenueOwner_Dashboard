@@ -4,6 +4,8 @@ import { Mail, MessageCircle, ArrowRight, ArrowLeft, Moon, Sun, Phone } from "lu
 import Logo from "../components/Logo.jsx";
 import { useTheme } from "../lib/theme.jsx";
 import { useLanguage } from "../lib/language.jsx";
+import { getApiErrorMessage } from "../lib/api.js";
+import { sendOtp } from "../lib/auth.js";
 
 const SYRIA_DIAL = "+963";
 const SYRIAN_PHONE_REGEX = /^9\d{8}$/;
@@ -15,16 +17,28 @@ export default function VendorLogin() {
   const { language, toggle: toggleLanguage } = useLanguage();
 
   const state = location.state;
-  if (!state?.accountType) return <Navigate to="/account-type" replace />;
-  const { accountType, portalEn, portalAr } = state;
+  const { accountType, portalEn, portalAr } = state || {};
 
   const [method, setMethod] = useState("email");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [phoneError, setPhoneError] = useState("");
+  const [requestError, setRequestError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const submit = (e) => {
+  if (!accountType) return <Navigate to="/account-type" replace />;
+
+  const changeMethod = (nextMethod) => {
+    if (isSubmitting) return;
+    setMethod(nextMethod);
+    setPhoneError("");
+    setRequestError("");
+  };
+
+  const submit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     if (method === "whatsapp") {
       if (!SYRIAN_PHONE_REGEX.test(phone)) {
         setPhoneError(
@@ -36,8 +50,23 @@ export default function VendorLogin() {
       }
       setPhoneError("");
     }
-    const identifier = method === "email" ? email : `${SYRIA_DIAL} ${phone}`;
-    navigate("/verify-otp", { state: { accountType, portalEn, portalAr, method, identifier } });
+
+    const identifier = method === "email" ? email.trim() : `0${phone}`;
+    const displayIdentifier = method === "email" ? identifier : `${SYRIA_DIAL} ${phone}`;
+    const identity = method === "email" ? { email: identifier } : { phone: identifier };
+
+    setRequestError("");
+    setIsSubmitting(true);
+    try {
+      await sendOtp(identity);
+      navigate("/verify-otp", {
+        state: { accountType, portalEn, portalAr, method, identifier, displayIdentifier },
+      });
+    } catch (error) {
+      setRequestError(getApiErrorMessage(error, language));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -88,10 +117,10 @@ export default function VendorLogin() {
           </p>
 
           <div className="segmented mt-6" role="tablist">
-            <button type="button" role="tab" aria-selected={method === "email"} className={`segmented-item ${method === "email" ? "active" : ""}`} onClick={() => setMethod("email")}>
+            <button type="button" role="tab" aria-selected={method === "email"} className={`segmented-item ${method === "email" ? "active" : ""}`} onClick={() => changeMethod("email")} disabled={isSubmitting}>
               <Mail size={16} /> {language === "ar" ? "البريد الإلكتروني" : "Email"}
             </button>
-            <button type="button" role="tab" aria-selected={method === "whatsapp"} className={`segmented-item ${method === "whatsapp" ? "active" : ""}`} onClick={() => setMethod("whatsapp")}>
+            <button type="button" role="tab" aria-selected={method === "whatsapp"} className={`segmented-item ${method === "whatsapp" ? "active" : ""}`} onClick={() => changeMethod("whatsapp")} disabled={isSubmitting}>
               <MessageCircle size={16} /> {language === "ar" ? "واتساب" : "WhatsApp"}
             </button>
           </div>
@@ -106,7 +135,10 @@ export default function VendorLogin() {
                     type="email"
                     required
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (requestError) setRequestError("");
+                    }}
                     placeholder={language === "ar" ? "بريدك@مثال.com" : "YourMail@mail.com"}
                     className="input"
                   />
@@ -128,6 +160,7 @@ export default function VendorLogin() {
                       onChange={(e) => {
                         setPhone(e.target.value.replace(/[^\d]/g, "").slice(0, 9));
                         if (phoneError) setPhoneError("");
+                        if (requestError) setRequestError("");
                       }}
                       placeholder="9XXXXXXXX"
                       maxLength={9}
@@ -143,8 +176,14 @@ export default function VendorLogin() {
               </div>
             )}
 
-            <button type="submit" className="btn-primary">
-              {method === "email"
+            {requestError && (
+              <p style={{ color: "#ef4444", fontSize: 13 }} role="alert">{requestError}</p>
+            )}
+
+            <button type="submit" className="btn-primary" disabled={isSubmitting}>
+              {isSubmitting
+                ? (language === "ar" ? "جارٍ إرسال الرمز..." : "Sending code...")
+                : method === "email"
                 ? (language === "ar" ? "إرسال الرمز عبر البريد الإلكتروني" : "Send code by email")
                 : (language === "ar" ? "إرسال الرمز عبر واتساب" : "Send code via WhatsApp")}
               <ArrowRight size={16} style={{ transform: language === "ar" ? "scaleX(-1)" : "none" }} />

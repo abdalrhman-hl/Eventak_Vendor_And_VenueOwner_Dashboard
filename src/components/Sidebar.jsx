@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { LayoutDashboard, LogOut, X, Package, ClipboardList, CalendarCheck, Bell, User, Building2, CalendarDays, FileText } from "lucide-react";
+import { LayoutDashboard, LogOut, X, Package, ClipboardList, CalendarCheck, Bell, User, Building2, FileText } from "lucide-react";
 import Logo from "./Logo.jsx";
 import { useLanguage } from "../lib/language.jsx";
-import { getAccountType, clearAccountType } from "../lib/accountType.js";
+import { getAccountType, isVenueOwnerAccountType } from "../lib/accountType.js";
+import { getApiErrorMessage } from "../lib/api.js";
+import { clearAuthSession, getAuthToken, logout } from "../lib/auth.js";
 
 const vendorItems = [
   { to: "/vendor-dashboard", label: "Dashboard", labelAr: "لوحة التحكم", icon: LayoutDashboard },
@@ -27,8 +30,10 @@ export default function Sidebar({ open, onClose }) {
   const { pathname } = useLocation();
   const { language } = useLanguage();
   const navigate = useNavigate();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const accountType = getAccountType() || "vendor";
-  const isVenue = accountType === "venue";
+  const isVenue = isVenueOwnerAccountType(accountType);
   const items = isVenue ? venueItems : vendorItems;
 
   const brandTitle = isVenue
@@ -37,11 +42,36 @@ export default function Sidebar({ open, onClose }) {
   const brandSub = language === "ar" ? "لوحة التحكم" : "Dashboard";
   const homeTo = isVenue ? "/venue-dashboard" : "/vendor-dashboard";
 
-  const handleLogout = (e) => {
-    e.preventDefault();
-    clearAccountType();
+  const finishLogout = () => {
+    clearAuthSession();
     onClose?.();
-    navigate("/account-type");
+    navigate("/account-type", { replace: true });
+  };
+
+  const handleLogout = async (e) => {
+    e.preventDefault();
+    if (isLoggingOut) return;
+
+    const token = getAuthToken();
+    if (!token) {
+      finishLogout();
+      return;
+    }
+
+    setLogoutError("");
+    setIsLoggingOut(true);
+    try {
+      await logout(token);
+      finishLogout();
+    } catch (error) {
+      if (error?.status === 401) {
+        finishLogout();
+        return;
+      }
+      setLogoutError(getApiErrorMessage(error, language));
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -79,10 +109,25 @@ export default function Sidebar({ open, onClose }) {
         </nav>
 
         <div className="sidebar-footer">
-          <a href="/account-type" onClick={handleLogout} className="nav-link">
+          <a
+            href="/account-type"
+            onClick={handleLogout}
+            className="nav-link"
+            aria-disabled={isLoggingOut}
+            style={isLoggingOut ? { opacity: 0.7, pointerEvents: "none" } : undefined}
+          >
             <LogOut size={18} />
-            <span>{language === "ar" ? "تسجيل الخروج" : "Logout"}</span>
+            <span>
+              {isLoggingOut
+                ? (language === "ar" ? "جارٍ تسجيل الخروج..." : "Logging out...")
+                : (language === "ar" ? "تسجيل الخروج" : "Logout")}
+            </span>
           </a>
+          {logoutError && (
+            <p style={{ color: "#ef4444", fontSize: 12, marginTop: 8 }} role="alert">
+              {logoutError}
+            </p>
+          )}
         </div>
       </aside>
     </>

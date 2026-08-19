@@ -206,6 +206,10 @@ input { font-family: inherit; }
   box-shadow: var(--shadow-luxury); transition: background .15s;
 }
 .btn-primary:hover { background: var(--primary-hover); }
+.btn-primary:disabled, .btn-secondary:disabled, .link-primary:disabled {
+  opacity: .7; cursor: not-allowed;
+}
+.btn-primary:disabled:hover { background: var(--primary); }
 
 .btn-secondary {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;

@@ -1,7 +1,7 @@
 import { Menu, Search, Bell, Moon, Sun } from "lucide-react";
 import { useTheme } from "../lib/theme.jsx";
 import { useLanguage } from "../lib/language.jsx";
-import { getAccountType } from "../lib/accountType.js";
+import { getAccountType, isVenueOwnerAccountType } from "../lib/accountType.js";
 import { getProfileName, getInitials } from "../lib/profile.js";
 import { mockUnreadCount } from "../lib/notifications.js";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -12,7 +12,7 @@ export default function Header({ onMenuClick }) {
   const { language, toggle: toggleLanguage } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
-  const isVenue = (getAccountType() || "vendor") === "venue";
+  const isVenue = isVenueOwnerAccountType(getAccountType() || "vendor");
   const [userName, setUserName] = useState(() => getProfileName());
 
   useEffect(() => {

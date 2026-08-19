@@ -7,7 +7,7 @@ import { setAccountType } from "../lib/accountType.js";
 
 const TYPES = [
   { id: "vendor", icon: Store, en: "Vendor", ar: "مورد", enPortal: "Vendor Portal", arPortal: "بوابة الموردين", enDesc: "Sell products and services to event organizers.", arDesc: "بيع المنتجات والخدمات لمنظمي الفعاليات." },
-  { id: "venue", icon: Building2, en: "Venue Owner", ar: "صاحب صالة", enPortal: "Venue Owner Portal", arPortal: "بوابة أصحاب الصالات", enDesc: "Manage your venues and incoming bookings.", arDesc: "أدر صالاتك والحجوزات الواردة." },
+  { id: "venue_owner", icon: Building2, en: "Venue Owner", ar: "صاحب صالة", enPortal: "Venue Owner Portal", arPortal: "بوابة أصحاب الصالات", enDesc: "Manage your venues and incoming bookings.", arDesc: "أدر صالاتك والحجوزات الواردة." },
 ];
 
 export default function AccountType() {
