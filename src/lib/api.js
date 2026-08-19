@@ -37,8 +37,9 @@ async function readJsonResponse(response) {
 
 export async function apiRequest(path, { method = "GET", body, token, signal } = {}) {
   const headers = { Accept: "application/json" };
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
 
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (body !== undefined && !isFormData) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
 
   let response;
@@ -46,7 +47,7 @@ export async function apiRequest(path, { method = "GET", body, token, signal } =
     response = await fetch(`${API_BASE_URL}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : (isFormData ? body : JSON.stringify(body)),
       signal,
     });
   } catch (error) {

@@ -1,5 +1,6 @@
 import { ApiError, apiRequest } from "./api.js";
 import { clearAccountType, setAccountType } from "./accountType.js";
+import { setProfileName } from "./profile.js";
 
 const TOKEN_KEY = "eventak-auth-token";
 const USER_KEY = "eventak-auth-user";
@@ -55,17 +56,39 @@ export function saveAuthSession(token, user) {
     id: user.id,
     name: user.name,
     role: user.role,
+    avatar_url: user.avatar_url || null,
   };
 
   try {
     localStorage.setItem(TOKEN_KEY, token);
     localStorage.setItem(USER_KEY, JSON.stringify(minimalUser));
     setAccountType(user.role);
+    publishProfileName(user.name);
   } catch {
     clearAuthSession();
     throw new ApiError("The authenticated session could not be saved.", {
       kind: "storage",
     });
+  }
+}
+
+export function syncAuthUserFromProfile(user) {
+  if (!user || !SUPPORTED_DASHBOARD_ROLES.includes(user.role)) return false;
+
+  const minimalUser = {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    avatar_url: user.avatar_url || null,
+  };
+
+  try {
+    localStorage.setItem(USER_KEY, JSON.stringify(minimalUser));
+    setAccountType(user.role);
+    publishProfileName(user.name);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -93,5 +116,13 @@ export function clearAuthSession() {
   } catch {
     // Storage may be unavailable; account-type cleanup still runs below.
   }
+  publishProfileName("");
   clearAccountType();
+}
+
+function publishProfileName(name) {
+  setProfileName(name);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("eventak:profile-updated"));
+  }
 }
