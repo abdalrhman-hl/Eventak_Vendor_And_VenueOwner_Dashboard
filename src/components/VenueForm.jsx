@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { X, Upload, ImagePlus } from "lucide-react";
 import { useLanguage } from "../lib/language.jsx";
+import { resolveLocalizedText } from "../lib/venues.js";
 
 const ALLOWED = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_SIZE = 2 * 1024 * 1024;
@@ -9,20 +10,28 @@ const labelStyle = { display: "block", fontSize: 13, fontWeight: 500, marginBott
 const fieldStyle = { display: "flex", flexDirection: "column" };
 const errorStyle = { color: "var(--destructive, #dc2626)", fontSize: 12, marginTop: 6 };
 
-// Shared form for Add Venue (POST) and Update Request (PUT). Frontend mock only.
-export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) {
+// Shared form for create requests and text-only update requests.
+export default function VenueForm({
+  initial,
+  submitLabel,
+  onSubmit,
+  onCancel,
+  isSubmitting = false,
+  serverErrors = {},
+  allowImages = true,
+}) {
   const { language } = useLanguage();
   const ar = language === "ar";
 
   const [form, setForm] = useState({
-    name: initial?.name ?? "",
+    name: resolveLocalizedText(initial?.name, ar),
     capacity: initial?.capacity ?? "",
     price: initial?.price ?? "",
-    address: initial?.address ?? "",
-    description: initial?.description ?? "",
+    address: resolveLocalizedText(initial?.address, ar),
+    description: resolveLocalizedText(initial?.description, ar),
   });
   const [cover, setCover] = useState(
-    initial?.cover_image_url ? { url: initial.cover_image_url, name: "cover" } : null
+    initial?.cover_image_url ? { url: initial.cover_image_url, name: "cover", file: null } : null
   );
   const [images, setImages] = useState(
     (initial?.images_urls || []).map((url, i) => ({ url, name: `image-${i + 1}` }))
@@ -51,7 +60,7 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
     const err = checkFiles(files);
     if (err) return setErrors((s) => ({ ...s, cover_image: err }));
     setErrors((s) => ({ ...s, cover_image: undefined }));
-    setCover({ url: URL.createObjectURL(files[0]), name: files[0].name });
+    setCover({ url: URL.createObjectURL(files[0]), name: files[0].name, file: files[0] });
   };
 
   const handleImages = (e) => {
@@ -63,7 +72,7 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
     setErrors((s) => ({ ...s, images: undefined }));
     setImages((prev) => [
       ...prev,
-      ...files.map((f) => ({ url: URL.createObjectURL(f), name: f.name })),
+      ...files.map((f) => ({ url: URL.createObjectURL(f), name: f.name, file: f })),
     ]);
   };
 
@@ -91,8 +100,8 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
       price: Number(form.price),
       address: String(form.address).trim(),
       description: String(form.description).trim() || null,
-      cover_image_url: cover?.url || null,
-      images_urls: images.map((i) => i.url),
+      cover_image: cover?.file || null,
+      images: images.map((image) => image.file).filter(Boolean),
     });
   };
 
@@ -122,7 +131,7 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
             onChange={update("name")}
             aria-invalid={!!errors.name}
           />
-          {errors.name && <div style={errorStyle}>{errors.name}</div>}
+          {(errors.name || serverErrors.name?.[0]) && <div style={errorStyle}>{errors.name || serverErrors.name[0]}</div>}
         </div>
 
         <div style={fieldStyle}>
@@ -136,7 +145,7 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
             onChange={update("capacity")}
             aria-invalid={!!errors.capacity}
           />
-          {errors.capacity && <div style={errorStyle}>{errors.capacity}</div>}
+          {(errors.capacity || serverErrors.capacity?.[0]) && <div style={errorStyle}>{errors.capacity || serverErrors.capacity[0]}</div>}
         </div>
 
         <div style={fieldStyle}>
@@ -150,7 +159,7 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
             onChange={update("price")}
             aria-invalid={!!errors.price}
           />
-          {errors.price && <div style={errorStyle}>{errors.price}</div>}
+          {(errors.price || serverErrors.price?.[0]) && <div style={errorStyle}>{errors.price || serverErrors.price[0]}</div>}
         </div>
 
         <div style={fieldStyle}>
@@ -161,7 +170,7 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
             onChange={update("address")}
             aria-invalid={!!errors.address}
           />
-          {errors.address && <div style={errorStyle}>{errors.address}</div>}
+          {(errors.address || serverErrors.address?.[0]) && <div style={errorStyle}>{errors.address || serverErrors.address[0]}</div>}
         </div>
       </div>
 
@@ -174,8 +183,11 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
           value={form.description}
           onChange={update("description")}
         />
+        {serverErrors.description?.[0] && <div style={errorStyle}>{serverErrors.description[0]}</div>}
       </div>
 
+      {allowImages && (
+        <>
       <div style={{ ...fieldStyle, marginTop: 16 }}>
         <label style={labelStyle}>{ar ? "صورة الغلاف" : "Cover Image"}</label>
         {cover ? (
@@ -201,7 +213,9 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
             <input type="file" accept="image/jpeg,image/png,image/jpg,image/webp" hidden onChange={handleCover} />
           </label>
         )}
-        {errors.cover_image && <div style={errorStyle}>{errors.cover_image}</div>}
+        {(errors.cover_image || serverErrors.cover_image?.[0]) && (
+          <div style={errorStyle}>{errors.cover_image || serverErrors.cover_image[0]}</div>
+        )}
       </div>
 
       <div style={{ ...fieldStyle, marginTop: 16 }}>
@@ -217,7 +231,9 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
             onChange={handleImages}
           />
         </label>
-        {errors.images && <div style={errorStyle}>{errors.images}</div>}
+        {(errors.images || serverErrors.images?.[0]) && (
+          <div style={errorStyle}>{errors.images || serverErrors.images[0]}</div>
+        )}
         {images.length > 0 && (
           <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", marginTop: 12 }}>
             {images.map((img, idx) => (
@@ -240,17 +256,20 @@ export default function VenueForm({ initial, submitLabel, onSubmit, onCancel }) 
           </div>
         )}
       </div>
+        </>
+      )}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 24, justifyContent: "flex-end" }}>
         <button
           type="button"
           onClick={onCancel}
+          disabled={isSubmitting}
           className="btn-venue"
           style={{ background: "transparent", color: "var(--foreground)", border: "1px solid var(--border)", minWidth: 140 }}
         >
           {ar ? "إلغاء" : "Cancel"}
         </button>
-        <button type="submit" className="btn-venue" style={{ minWidth: 160 }}>
+        <button type="submit" disabled={isSubmitting} className="btn-venue" style={{ minWidth: 160 }}>
           {submitLabel}
         </button>
       </div>

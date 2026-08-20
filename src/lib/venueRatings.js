@@ -1,48 +1,48 @@
-// Frontend-only mock store shaped like the Laravel public endpoint:
-// GET /api/venues/{venueId}/ratings -> { status, data: { average_rating, ratings_count, ratings[] } }
+import { ApiError, apiRequest } from "./api.js";
 
-const venueRatingsMock = {
-  status: "success",
-  data: {
-    average_rating: 4.3,
-    ratings_count: 12,
-    ratings: [
-      {
-        rating: 5,
-        comment: "Excellent venue and very professional service.",
-        customer_name: "Ahmad Khaled",
-        created_at: "2026-08-15T14:30:00.000000Z",
-      },
-      {
-        rating: 4,
-        comment: "Beautiful hall, but parking was a little limited.",
-        customer_name: "Sara Mahmoud",
-        created_at: "2026-08-14T12:20:00.000000Z",
-      },
-      {
-        rating: 4,
-        comment: null,
-        customer_name: "Omar Hassan",
-        created_at: "2026-08-13T10:10:00.000000Z",
-      },
-    ],
-  },
-};
+function normalizeScore(value) {
+  const score = Number(value);
+  return Number.isFinite(score) && score >= 0 && score <= 5 ? score : null;
+}
 
-export function getVenueRatings(venueId) {
-  // In the future this will call GET /api/venues/{venueId}/ratings.
-  // For now every venue shares the same mock response.
-  return venueRatingsMock;
+function normalizeOptionalText(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export async function fetchVenueRatings(venueId, signal) {
+  const payload = await apiRequest(`/venues/${venueId}/ratings`, { signal });
+  if (payload?.status !== "success" || !payload.data || !Array.isArray(payload.data.ratings)) {
+    throw new ApiError("The server returned an unexpected response.", { kind: "unexpected_response" });
+  }
+
+  const ratings = payload.data.ratings.map((rating) => ({
+    rating: normalizeScore(rating?.rating),
+    comment: normalizeOptionalText(rating?.comment),
+    customer_name: normalizeOptionalText(rating?.customer_name),
+    created_at: normalizeOptionalText(rating?.created_at),
+  }));
+  const average = normalizeScore(payload.data.average_rating) ?? 0;
+  const count = Number(payload.data.ratings_count);
+
+  return {
+    ...payload,
+    data: {
+      average_rating: average,
+      ratings_count: Number.isInteger(count) && count >= 0 ? count : ratings.length,
+      ratings,
+    },
+  };
+}
+
+export function formatRatingValue(value) {
+  return Number.isFinite(value) ? `${value} / 5` : "-";
 }
 
 export function formatRatingDate(iso, ar) {
-  try {
-    return new Date(iso).toLocaleDateString(ar ? "ar-EG" : "en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-  } catch {
-    return iso;
-  }
+  if (!iso) return "-";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(ar ? "ar-EG" : "en-US", {
+    year: "numeric", month: "short", day: "numeric",
+  });
 }

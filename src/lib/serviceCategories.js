@@ -1,35 +1,25 @@
-// Shared mock service categories.
-// Backend-compatible with the future public endpoint: GET /api/services/categories
-// Shape: { id, name, description }
+import { ApiError, apiRequest } from "./api.js";
+import { resolveLocalizedText } from "./venues.js";
 
-export const serviceCategories = [
-  {
-    id: 1,
-    name: "Photography",
-    description: "Photography and media coverage services.",
-  },
-  {
-    id: 2,
-    name: "Decoration",
-    description: "Decoration and floral setup services.",
-  },
-  {
-    id: 3,
-    name: "Catering",
-    description: "Food, drinks, and hospitality services.",
-  },
-  {
-    id: 4,
-    name: "Transportation",
-    description: "Cars and transportation services for events.",
-  },
-  {
-    id: 5,
-    name: "Music & Entertainment",
-    description: "Music, DJ, and entertainment services.",
-  },
-];
+export async function fetchServiceCategories(signal) {
+  const payload = await apiRequest("/services/categories", { signal });
+  if (payload?.status !== "success" || !Array.isArray(payload.data)) {
+    throw new ApiError("The server returned an unexpected response.", {
+      kind: "unexpected_response",
+    });
+  }
+  return payload;
+}
 
-export function getServiceCategoryById(id) {
-  return serviceCategories.find((c) => Number(c.id) === Number(id));
+export function displayServiceCategoryName(category, ar = false) {
+  const name = resolveLocalizedText(category?.name, ar);
+  if (name) return name;
+  if (category?.id !== undefined && category?.id !== null) {
+    return ar ? `تصنيف بدون اسم (#${category.id})` : `Unnamed category (#${category.id})`;
+  }
+  return ar ? "تصنيف غير متاح" : "Category unavailable";
+}
+
+export function displayServiceCategoryDescription(category, ar = false) {
+  return resolveLocalizedText(category?.description, ar);
 }

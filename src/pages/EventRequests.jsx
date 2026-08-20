@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Eye, CalendarClock, CheckCircle2 } from "lucide-react";
 import { useLanguage } from "../lib/language.jsx";
+import { getApiErrorMessage } from "../lib/api.js";
+import { clearAuthSession, getAuthToken } from "../lib/auth.js";
 import {
-  getVendorOrders,
-  subscribeVendorOrders,
+  displayOrderText,
+  fetchVendorOrders,
   vendorOrderStatusLabels,
   vendorOrderStatusClass,
   formatEventDate,
@@ -16,19 +18,37 @@ export default function EventRequests() {
   const { language } = useLanguage();
   const ar = language === "ar";
   const location = useLocation();
-  const [, force] = useState(0);
+  const navigate = useNavigate();
   const [flash, setFlash] = useState(location.state?.flash || "");
-  const [extraFlash, setExtraFlash] = useState(location.state?.extraFlash || "");
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  useEffect(() => subscribeVendorOrders(() => force((n) => n + 1)), []);
   useEffect(() => {
-    if (!flash && !extraFlash) return;
-    const t = setTimeout(() => { setFlash(""); setExtraFlash(""); }, 6000);
+    const controller = new AbortController();
+    const token = getAuthToken();
+    if (!token) {
+      clearAuthSession();
+      navigate("/account-type", { replace: true });
+      return () => controller.abort();
+    }
+    fetchVendorOrders(token, controller.signal)
+      .then((payload) => setOrders(payload.data))
+      .catch((requestError) => {
+        if (requestError?.name === "AbortError") return;
+        if (requestError?.status === 401) {
+          clearAuthSession();
+          navigate("/account-type", { replace: true });
+        } else setError(getApiErrorMessage(requestError, language));
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [language, navigate]);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(""), 6000);
     return () => clearTimeout(t);
-  }, [flash, extraFlash]);
-
-  // GET /api/vendor/orders (mock) — pending service decisions only
-  const orders = getVendorOrders();
+  }, [flash]);
 
   return (
     <div>
@@ -51,15 +71,7 @@ export default function EventRequests() {
           <span>{flash}</span>
         </div>
       )}
-      {extraFlash && (
-        <div role="status" style={{
-          display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 10,
-          background: "rgba(59, 130, 246, 0.1)", color: "#1d4ed8",
-          border: "1px solid rgba(59, 130, 246, 0.3)", marginBottom: 16, fontSize: 14, fontWeight: 500,
-        }}>
-          <span>{extraFlash}</span>
-        </div>
-      )}
+      {error && <div role="alert" className="dashboard-card" style={{ color: "#b91c1c", marginBottom: 16 }}>{error}</div>}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
         <span
@@ -72,7 +84,11 @@ export default function EventRequests() {
         </span>
       </div>
 
-      {orders.length === 0 ? (
+      {loading ? (
+        <div className="dashboard-card" style={{ textAlign: "center", padding: 48 }}>
+          {ar ? "جاري تحميل طلبات الفعاليات..." : "Loading event requests..."}
+        </div>
+      ) : orders.length === 0 && !error ? (
         <div className="dashboard-card" style={{ textAlign: "center", padding: 48 }}>
           <CalendarClock size={32} color="var(--muted-foreground)" />
           <h3 style={{ fontSize: 17, fontWeight: 700, marginTop: 12 }}>
@@ -111,13 +127,13 @@ export default function EventRequests() {
                   <tr key={o.id}>
                     <td data-label={ar ? "رقم الطلب" : "Order ID"}>#{o.id}</td>
                     <td data-label={ar ? "رقم الفعالية" : "Event ID"}>#{o.event_id}</td>
-                    <td data-label={ar ? "نوع الفعالية" : "Event Type"}>{o.event?.event_type}</td>
-                    <td data-label={ar ? "اسم الخدمة" : "Service Name"} style={{ fontWeight: 600 }}>{o.service?.name}</td>
+                    <td data-label={ar ? "نوع الفعالية" : "Event Type"}>{displayOrderText(o.event?.event_type, ar)}</td>
+                    <td data-label={ar ? "اسم الخدمة" : "Service Name"} style={{ fontWeight: 600 }}>{displayOrderText(o.service?.name, ar, ar ? "خدمة بدون اسم" : "Unnamed service")}</td>
                     <td data-label={ar ? "سعر الخدمة" : "Service Price"}>{formatPrice(o.service?.price)}</td>
-                    <td data-label={ar ? "اسم الزبون" : "Customer Name"}>{o.customer?.name}</td>
-                    <td data-label={ar ? "رقم الزبون" : "Customer Phone"} style={{ direction: "ltr" }}>{o.customer?.phone}</td>
-                    <td data-label={ar ? "اسم الصالة" : "Venue Name"}>{o.venue?.name}</td>
-                    <td data-label={ar ? "عنوان الصالة" : "Venue Address"}>{o.venue?.address}</td>
+                    <td data-label={ar ? "اسم الزبون" : "Customer Name"}>{o.event?.customer?.name || "-"}</td>
+                    <td data-label={ar ? "رقم الزبون" : "Customer Phone"} style={{ direction: "ltr" }}>{o.event?.customer?.phone || "-"}</td>
+                    <td data-label={ar ? "اسم الصالة" : "Venue Name"}>{displayOrderText(o.event?.venue?.name, ar)}</td>
+                    <td data-label={ar ? "عنوان الصالة" : "Venue Address"}>{displayOrderText(o.event?.venue?.address, ar)}</td>
                     <td data-label={ar ? "التاريخ" : "Date"}>{formatEventDate(o.event?.date, ar)}</td>
                     <td data-label={ar ? "وقت البداية" : "Start Time"}>{formatEventTime(o.event?.start_time, ar)}</td>
                     <td data-label={ar ? "وقت النهاية" : "End Time"}>{formatEventTime(o.event?.end_time, ar)}</td>

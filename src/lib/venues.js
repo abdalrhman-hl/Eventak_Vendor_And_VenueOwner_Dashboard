@@ -1,144 +1,86 @@
-// Frontend-only mock store shaped like the Laravel VenueController API.
-// GET /api/venue-owner/venues  -> { status, count, data: Venue[] }
-// GET /api/venue-owner/requests -> pending VenueRequest[] only
+import { ApiError, apiRequest } from "./api.js";
+import { normalizeBackendMediaUrl } from "./media.js";
 
-export const myVenues = [
-  {
-    id: 1,
-    owner_id: 3,
-    name: "Royal Wedding Hall",
-    capacity: 300,
-    price: 5000,
-    address: "Damascus - Mazzeh",
-    description: "Luxury venue for weddings and private events.",
-    cover_image_url: null,
-    images_urls: [],
-    status: "active",
-    created_at: "2026-08-15T14:30:00.000000Z",
-  },
-  {
-    id: 2,
-    owner_id: 3,
-    name: "Crystal Ballroom",
-    capacity: 180,
-    price: 3500,
-    address: "Damascus - Abu Rummaneh",
-    description: "Elegant indoor ballroom for engagement parties.",
-    cover_image_url: null,
-    images_urls: [],
-    status: "active",
-    created_at: "2026-08-14T12:20:00.000000Z",
-  },
-];
-
-export function getMyVenues() {
-  return myVenues;
-}
-
-export function getVenueById(id) {
-  return myVenues.find((v) => String(v.id) === String(id));
-}
-
-const KEY = "eventak-venue-requests";
-
-const seedRequests = [
-  {
-    id: 101,
-    owner_id: 3,
-    venue_id: null,
-    type: "create",
-    name: "Moonlight Hall",
-    capacity: 250,
-    price: 4200,
-    address: "Damascus - Kafr Sousa",
-    description: "A modern hall for weddings and corporate events.",
-    cover_image_url: null,
-    images_urls: [],
-    status: "pending",
-    created_at: "2026-08-16T10:30:00.000000Z",
-  },
-  {
-    id: 102,
-    owner_id: 3,
-    venue_id: 1,
-    type: "update",
-    name: "Royal Wedding Hall",
-    capacity: 350,
-    price: 5500,
-    address: "Damascus - Mazzeh",
-    description: "Updated venue details waiting for Admin approval.",
-    cover_image_url: null,
-    images_urls: [],
-    status: "pending",
-    created_at: "2026-08-15T15:45:00.000000Z",
-  },
-  {
-    id: 103,
-    owner_id: 3,
-    venue_id: 2,
-    type: "delete",
-    name: "Crystal Ballroom",
-    capacity: 180,
-    price: 3500,
-    address: "Damascus - Abu Rummaneh",
-    description: null,
-    cover_image_url: null,
-    images_urls: [],
-    status: "pending",
-    created_at: "2026-08-14T18:00:00.000000Z",
-  },
-];
-
-export function getVenueRequests() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return seedRequests;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter((r) => r.status === "pending") : seedRequests;
-  } catch {
-    return seedRequests;
+function requireSuccess(payload) {
+  if (payload?.status !== "success" || !Array.isArray(payload.data)) {
+    throw new ApiError("The server returned an unexpected response.", { kind: "unexpected_response" });
   }
+  return payload;
 }
 
-export function getVenueRequestById(id) {
-  return getVenueRequests().find((r) => String(r.id) === String(id));
+function requireMutationSuccess(payload) {
+  if (payload?.status !== "success") {
+    throw new ApiError("The server returned an unexpected response.", { kind: "unexpected_response" });
+  }
+  return payload;
 }
 
-export function addVenueRequest(req) {
-  const list = getVenueRequests();
-  const next = [
-    {
-      id: Date.now(),
-      owner_id: 3,
-      venue_id: null,
-      cover_image_url: null,
-      images_urls: [],
-      status: "pending",
-      created_at: new Date().toISOString(),
-      ...req,
+export function normalizeVenueMedia(record) {
+  if (!record || typeof record !== "object") return record;
+  return {
+    ...record,
+    cover_image_url: normalizeBackendMediaUrl(record.cover_image_url),
+    images_urls: Array.isArray(record.images_urls)
+      ? record.images_urls.map(normalizeBackendMediaUrl).filter(Boolean)
+      : [],
+  };
+}
+
+export async function fetchMyVenues(token, signal) {
+  const payload = requireSuccess(await apiRequest("/venue-owner/venues", { token, signal }));
+  return { ...payload, data: payload.data.map(normalizeVenueMedia) };
+}
+
+export async function createVenueRequest(token, values) {
+  const formData = new FormData();
+  formData.append("name", values.name);
+  formData.append("capacity", String(values.capacity));
+  formData.append("price", String(values.price));
+  formData.append("address", values.address);
+  if (values.description) formData.append("description", values.description);
+  if (values.cover_image instanceof File) formData.append("cover_image", values.cover_image);
+  for (const image of values.images || []) formData.append("images[]", image);
+
+  return requireMutationSuccess(await apiRequest("/venue-owner/venue", {
+    method: "POST", token, body: formData,
+  }));
+}
+
+export async function updateVenueRequest(token, venueId, values) {
+  return requireMutationSuccess(await apiRequest(`/venue-owner/venue/${venueId}`, {
+    method: "PUT",
+    token,
+    body: {
+      name: values.name,
+      capacity: values.capacity,
+      price: values.price,
+      address: values.address,
+      description: values.description,
     },
-    ...list,
-  ];
-  try {
-    localStorage.setItem(KEY, JSON.stringify(next));
-  } catch {}
-  return next;
+  }));
 }
 
-export function setVenueFlash(msg) {
-  try {
-    sessionStorage.setItem("venueRequestFlash", msg);
-  } catch {}
+export async function deleteVenueRequest(token, venueId) {
+  return requireMutationSuccess(await apiRequest(`/venue-owner/venue/${venueId}`, {
+    method: "DELETE", token,
+  }));
+}
+
+export async function fetchVenueRequests(token, signal) {
+  const payload = requireSuccess(await apiRequest("/venue-owner/requests", { token, signal }));
+  return { ...payload, data: payload.data.map(normalizeVenueMedia) };
+}
+
+export function setVenueFlash(message) {
+  try { sessionStorage.setItem("venueRequestFlash", message); } catch { /* optional UX state */ }
 }
 
 export function takeVenueFlash() {
   try {
-    const msg = sessionStorage.getItem("venueRequestFlash");
-    if (msg) sessionStorage.removeItem("venueRequestFlash");
-    return msg || "";
-  } catch {
-    return "";
-  }
+    const message = sessionStorage.getItem("venueRequestFlash");
+    if (message) sessionStorage.removeItem("venueRequestFlash");
+    return message || "";
+  } catch { return ""; }
 }
 
 export const REQUEST_TYPE_LABEL = {
@@ -154,18 +96,46 @@ export const VENUE_STATUS_LABEL = {
 };
 
 export function formatDate(iso, ar) {
-  try {
-    return new Date(iso).toLocaleDateString(ar ? "ar-EG" : "en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
-  } catch {
-    return iso;
-  }
+  if (!iso) return "-";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleDateString(ar ? "ar-EG" : "en-US", {
+    year: "numeric", month: "long", day: "numeric",
+  });
 }
 
 export function formatPrice(price) {
-  if (price === undefined || price === null) return "-";
-  return `${price} SYP`;
+  if (price === undefined || price === null || price === "") return "-";
+  const numeric = Number(price);
+  const display = Number.isFinite(numeric)
+    ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(numeric)
+    : String(price);
+  return `${display} SYP`;
+}
+
+export function resolveLocalizedText(value, ar = false) {
+  if (typeof value === "string") return value.trim();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+
+  const preferred = ar ? value.ar : value.en;
+  if (typeof preferred === "string" && preferred.trim()) return preferred.trim();
+
+  const fallback = [value.en, value.ar, ...Object.values(value)]
+    .find((candidate) => typeof candidate === "string" && candidate.trim());
+  return fallback?.trim() || "";
+}
+
+export function displayVenueName(name, ar = false) {
+  return resolveLocalizedText(name, ar)
+    || (ar ? "صالة بدون اسم" : "Unnamed venue");
+}
+
+export function displayVenueAddress(address, ar = false) {
+  return resolveLocalizedText(address, ar)
+    || (ar ? "العنوان غير متاح" : "Address unavailable");
+}
+
+export function displayVenueDescription(description, ar = false) {
+  return resolveLocalizedText(description, ar)
+    || (ar ? "لا يوجد وصف." : "No description.");
 }

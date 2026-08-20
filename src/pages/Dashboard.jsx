@@ -1,20 +1,21 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Package, ClipboardList, CalendarCheck, Bell } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Package, ClipboardList, CalendarCheck, CheckCircle2 } from "lucide-react";
 import { useLanguage } from "../lib/language.jsx";
+import { getApiErrorMessage } from "../lib/api.js";
+import { clearAuthSession, getAuthToken } from "../lib/auth.js";
 import {
-  getVendorServices,
-  subscribeVendorServices,
+  displayServiceName,
+  fetchVendorServices,
   serviceStatusLabels,
   formatServiceDate,
 } from "../lib/vendorServices.js";
 import {
-  getVendorOrders,
-  subscribeVendorOrders,
+  displayOrderText,
+  fetchVendorOrders,
   vendorOrderStatusLabels,
   formatEventDate,
 } from "../lib/vendorOrders.js";
-import { mockUnreadCount } from "../lib/notifications.js";
 
 function StatCard({ icon: Icon, label, value, accent }) {
   return (
@@ -33,13 +34,38 @@ function StatCard({ icon: Icon, label, value, accent }) {
 export default function Dashboard() {
   const { language } = useLanguage();
   const ar = language === "ar";
-  const [, force] = useState(0);
+  const navigate = useNavigate();
+  const [services, setServices] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  useEffect(() => subscribeVendorServices(() => force((n) => n + 1)), []);
-  useEffect(() => subscribeVendorOrders(() => force((n) => n + 1)), []);
-
-  const services = getVendorServices();
-  const orders = getVendorOrders();
+  useEffect(() => {
+    const controller = new AbortController();
+    const token = getAuthToken();
+    if (!token) {
+      clearAuthSession();
+      navigate("/account-type", { replace: true });
+      return () => controller.abort();
+    }
+    Promise.all([
+      fetchVendorServices(token, controller.signal),
+      fetchVendorOrders(token, controller.signal),
+    ])
+      .then(([servicesPayload, ordersPayload]) => {
+        setServices(servicesPayload.data);
+        setOrders(ordersPayload.data);
+      })
+      .catch((requestError) => {
+        if (requestError?.name === "AbortError") return;
+        if (requestError?.status === 401) {
+          clearAuthSession();
+          navigate("/account-type", { replace: true });
+        } else setError(getApiErrorMessage(requestError, language));
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [language, navigate]);
 
   const activeServices = services.filter((s) => s.status === "active");
   const pendingServiceRequests = services.filter(
@@ -54,6 +80,12 @@ export default function Dashboard() {
       accent: "linear-gradient(135deg,#22819a,#1b6a80)",
     },
     {
+      icon: CheckCircle2,
+      label: ar ? "الخدمات النشطة" : "Active Services",
+      value: activeServices.length,
+      accent: "linear-gradient(135deg,#10b981,#047857)",
+    },
+    {
       icon: ClipboardList,
       label: ar ? "طلبات الخدمات المعلقة" : "Pending Service Requests",
       value: pendingServiceRequests.length,
@@ -64,12 +96,6 @@ export default function Dashboard() {
       label: ar ? "طلبات الفعاليات المعلقة" : "Pending Event Requests",
       value: orders.length,
       accent: "linear-gradient(135deg,#7c5bf6,#6a47ea)",
-    },
-    {
-      icon: Bell,
-      label: ar ? "الإشعارات غير المقروءة" : "Unread Notifications",
-      value: mockUnreadCount,
-      accent: "linear-gradient(135deg,#ef4444,#dc2626)",
     },
   ];
 
@@ -84,6 +110,9 @@ export default function Dashboard() {
           {ar ? "نظرة عامة على خدماتك وطلباتك الأخيرة" : "Overview of your services and recent requests"}
         </p>
       </div>
+
+      {error && <div role="alert" className="dashboard-card" style={{ color: "#b91c1c", marginBottom: 16 }}>{error}</div>}
+      {loading && <div className="dashboard-card" style={{ textAlign: "center", marginBottom: 16 }}>{ar ? "جاري تحميل لوحة التحكم..." : "Loading dashboard..."}</div>}
 
       <div className="stat-grid">
         {stats.map((s, i) => <StatCard key={i} {...s} />)}
@@ -106,7 +135,7 @@ export default function Dashboard() {
               {recentServiceRequests.map((s) => (
                 <li key={s.id} className="list-item">
                   <div>
-                    <div className="list-title">{s.name}</div>
+                    <div className="list-title">{displayServiceName(s.name, ar)}</div>
                     <div className="list-sub">#{s.id}</div>
                   </div>
                   <div className="list-meta">
@@ -137,8 +166,8 @@ export default function Dashboard() {
               {recentOrders.map((o) => (
                 <li key={o.id} className="list-item">
                   <div>
-                    <div className="list-title">{o.service?.name}</div>
-                    <div className="list-sub">{o.customer?.name} · #{o.event_id}</div>
+                    <div className="list-title">{displayOrderText(o.service?.name, ar, ar ? "خدمة بدون اسم" : "Unnamed service")}</div>
+                    <div className="list-sub">{o.event?.customer?.name || "-"} · #{o.event_id}</div>
                   </div>
                   <div className="list-meta">
                     <span className="status-pill">

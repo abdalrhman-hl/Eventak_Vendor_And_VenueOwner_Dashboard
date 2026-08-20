@@ -1,6 +1,6 @@
 import { useLanguage } from "../lib/language.jsx";
 
-export default function ConfirmDeleteServiceDialog({ open, onCancel, onConfirm }) {
+export default function ConfirmDeleteServiceDialog({ open, onCancel, onConfirm, isSubmitting = false }) {
   const { language } = useLanguage();
   const ar = language === "ar";
   if (!open) return null;
@@ -28,13 +28,14 @@ export default function ConfirmDeleteServiceDialog({ open, onCancel, onConfirm }
           <button
             type="button"
             onClick={onCancel}
+            disabled={isSubmitting}
             className="btn-venue"
             style={{ background: "transparent", color: "var(--foreground)", border: "1px solid var(--border)" }}
           >
             {ar ? "إلغاء" : "Cancel"}
           </button>
-          <button type="button" onClick={onConfirm} className="btn-primary" style={{ width: "auto", padding: "10px 20px" }}>
-            {ar ? "تأكيد طلب الحذف" : "Confirm Delete Request"}
+          <button type="button" disabled={isSubmitting} onClick={onConfirm} className="btn-primary" style={{ width: "auto", padding: "10px 20px" }}>
+            {isSubmitting ? (ar ? "جاري الإرسال..." : "Submitting...") : (ar ? "تأكيد طلب الحذف" : "Confirm Delete Request")}
           </button>
         </div>
       </div>

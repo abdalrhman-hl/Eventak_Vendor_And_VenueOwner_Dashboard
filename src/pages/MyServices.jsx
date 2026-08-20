@@ -3,14 +3,16 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Eye, Pencil, Trash2, Plus, Package, CheckCircle2 } from "lucide-react";
 import { useLanguage } from "../lib/language.jsx";
 import ConfirmDeleteServiceDialog from "../components/ConfirmDeleteServiceDialog.jsx";
+import { getApiErrorMessage } from "../lib/api.js";
+import { clearAuthSession, getAuthToken } from "../lib/auth.js";
 import {
-  getVendorServices,
-  subscribeVendorServices,
+  fetchVendorServices,
   requestDeleteVendorService,
   serviceStatusLabels,
   serviceStatusClass,
   canModifyService,
   categoryName,
+  displayServiceName,
   formatServiceDate,
   formatPrice,
 } from "../lib/vendorServices.js";
@@ -30,31 +32,62 @@ export default function MyServices() {
   const location = useLocation();
   const [filter, setFilter] = useState("all");
   const [pendingDelete, setPendingDelete] = useState(null);
-  const [, force] = useState(0);
   const [flash, setFlash] = useState(location.state?.flash || "");
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
-  useEffect(() => subscribeVendorServices(() => force((n) => n + 1)), []);
+  useEffect(() => {
+    const controller = new AbortController();
+    const token = getAuthToken();
+    if (!token) {
+      clearAuthSession();
+      navigate("/account-type", { replace: true });
+      return () => controller.abort();
+    }
+    fetchVendorServices(token, controller.signal)
+      .then((payload) => setServices(payload.data))
+      .catch((requestError) => {
+        if (requestError?.name === "AbortError") return;
+        if (requestError?.status === 401) {
+          clearAuthSession();
+          navigate("/account-type", { replace: true });
+        } else setError(getApiErrorMessage(requestError, language));
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [language, navigate]);
   useEffect(() => {
     if (!flash) return;
     const t = setTimeout(() => setFlash(""), 4000);
     return () => clearTimeout(t);
   }, [flash]);
 
-  // GET /api/vendor/services (mock)
-  const services = getVendorServices();
   const visible = filter === "all" ? services : services.filter((s) => s.status === filter);
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
+    if (!pendingDelete || deleting) return;
     const service = pendingDelete;
-    setPendingDelete(null);
-    requestDeleteVendorService(service.id);
-    navigate("/vendor-dashboard/service-requests", {
-      state: {
-        flash: ar
+    setDeleting(true);
+    setError("");
+    try {
+      const payload = await requestDeleteVendorService(getAuthToken(), service.id);
+      setPendingDelete(null);
+      navigate("/vendor-dashboard/service-requests", {
+        state: { flash: payload.message || (ar
           ? "تم إرسال طلب الحذف بنجاح وهو بانتظار مراجعة الإدارة."
-          : "Delete request submitted successfully and is pending Admin review.",
-      },
-    });
+          : "Delete request submitted successfully and is pending Admin review.") },
+      });
+    } catch (requestError) {
+      if (requestError?.status === 401) {
+        clearAuthSession();
+        navigate("/account-type", { replace: true });
+      } else {
+        setError(getApiErrorMessage(requestError, language));
+        setPendingDelete(null);
+      }
+    } finally { setDeleting(false); }
   };
 
   return (
@@ -90,6 +123,8 @@ export default function MyServices() {
         </div>
       )}
 
+      {error && <div role="alert" className="dashboard-card" style={{ color: "#b91c1c", marginBottom: 16 }}>{error}</div>}
+
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
         {FILTERS.map((f) => {
           const active = filter === f.key;
@@ -111,7 +146,11 @@ export default function MyServices() {
         })}
       </div>
 
-      {services.length === 0 ? (
+      {loading ? (
+        <div className="dashboard-card" style={{ textAlign: "center", padding: 48 }}>
+          {ar ? "جاري تحميل الخدمات..." : "Loading services..."}
+        </div>
+      ) : services.length === 0 && !error ? (
         <div className="dashboard-card" style={{ textAlign: "center", padding: 48 }}>
           <Package size={32} color="var(--muted-foreground)" />
           <h3 style={{ fontSize: 17, fontWeight: 700, marginTop: 12 }}>
@@ -149,8 +188,8 @@ export default function MyServices() {
                   visible.map((s) => (
                     <tr key={s.id}>
                       <td data-label={ar ? "رقم الخدمة" : "Service ID"}>#{s.id}</td>
-                      <td data-label={ar ? "اسم الخدمة" : "Service Name"} style={{ fontWeight: 600 }}>{s.name}</td>
-                      <td data-label={ar ? "التصنيف" : "Category"}>{categoryName(s)}</td>
+                      <td data-label={ar ? "اسم الخدمة" : "Service Name"} style={{ fontWeight: 600 }}>{displayServiceName(s.name, ar)}</td>
+                      <td data-label={ar ? "التصنيف" : "Category"}>{categoryName(s, ar)}</td>
                       <td data-label={ar ? "السعر" : "Price"}>{formatPrice(s.price)}</td>
                       <td data-label={ar ? "الحالة" : "Status"}>
                         <span className={`status-badge ${serviceStatusClass[s.status]}`}>
@@ -208,8 +247,9 @@ export default function MyServices() {
 
       <ConfirmDeleteServiceDialog
         open={!!pendingDelete}
-        onCancel={() => setPendingDelete(null)}
+        onCancel={() => !deleting && setPendingDelete(null)}
         onConfirm={confirmDelete}
+        isSubmitting={deleting}
       />
     </div>
   );

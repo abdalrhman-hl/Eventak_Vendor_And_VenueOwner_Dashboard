@@ -3,14 +3,17 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Pencil, Trash2 } from "lucide-react";
 import { useLanguage } from "../lib/language.jsx";
 import ConfirmDeleteServiceDialog from "../components/ConfirmDeleteServiceDialog.jsx";
+import { getApiErrorMessage } from "../lib/api.js";
+import { clearAuthSession, getAuthToken } from "../lib/auth.js";
 import {
-  getVendorServiceById,
-  subscribeVendorServices,
+  fetchVendorServices,
   requestDeleteVendorService,
   serviceStatusLabels,
   serviceStatusClass,
   canModifyService,
   categoryName,
+  displayServiceDescription,
+  displayServiceName,
   formatServiceDate,
   formatPrice,
 } from "../lib/vendorServices.js";
@@ -32,19 +35,45 @@ export default function ServiceDetails() {
   const ar = language === "ar";
   const { serviceId } = useParams();
   const navigate = useNavigate();
-  const [, force] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  useEffect(() => subscribeVendorServices(() => force((n) => n + 1)), []);
+  const [service, setService] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
-  const service = getVendorServiceById(serviceId);
+  useEffect(() => {
+    const controller = new AbortController();
+    const token = getAuthToken();
+    if (!token) {
+      clearAuthSession();
+      navigate("/account-type", { replace: true });
+      return () => controller.abort();
+    }
+    fetchVendorServices(token, controller.signal)
+      .then((payload) => setService(payload.data.find((item) => String(item.id) === String(serviceId)) || null))
+      .catch((requestError) => {
+        if (requestError?.name === "AbortError") return;
+        if (requestError?.status === 401) {
+          clearAuthSession();
+          navigate("/account-type", { replace: true });
+        } else setError(getApiErrorMessage(requestError, language));
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [language, navigate, serviceId]);
+
   const BackIcon = ar ? ArrowRight : ArrowLeft;
+
+  if (loading) {
+    return <div className="dashboard-card" style={{ textAlign: "center", padding: 48 }}>{ar ? "جاري تحميل الخدمة..." : "Loading service..."}</div>;
+  }
 
   if (!service) {
     return (
       <div>
         <h1 className="heading-xl">{ar ? "تفاصيل الخدمة" : "Service Details"}</h1>
         <div className="dashboard-card" style={{ marginTop: 16 }}>
-          <p className="subtle">{ar ? "لم يتم العثور على الخدمة." : "Service not found."}</p>
+          <p className="subtle">{error || (ar ? "لم يتم العثور على الخدمة." : "Service not found.")}</p>
           <Link to="/vendor-dashboard/my-services" className="btn-primary" style={{ marginTop: 16, display: "inline-flex" }}>
             {ar ? "العودة إلى خدماتي" : "Back to My Services"}
           </Link>
@@ -53,16 +82,27 @@ export default function ServiceDetails() {
     );
   }
 
-  const confirmDelete = () => {
-    setConfirmOpen(false);
-    requestDeleteVendorService(service.id);
-    navigate("/vendor-dashboard/service-requests", {
-      state: {
-        flash: ar
+  const confirmDelete = async () => {
+    if (deleting) return;
+    setDeleting(true);
+    setError("");
+    try {
+      const payload = await requestDeleteVendorService(getAuthToken(), service.id);
+      setConfirmOpen(false);
+      navigate("/vendor-dashboard/service-requests", {
+        state: { flash: payload.message || (ar
           ? "تم إرسال طلب الحذف بنجاح وهو بانتظار مراجعة الإدارة."
-          : "Delete request submitted successfully and is pending Admin review.",
-      },
-    });
+          : "Delete request submitted successfully and is pending Admin review.") },
+      });
+    } catch (requestError) {
+      if (requestError?.status === 401) {
+        clearAuthSession();
+        navigate("/account-type", { replace: true });
+      } else {
+        setError(getApiErrorMessage(requestError, language));
+        setConfirmOpen(false);
+      }
+    } finally { setDeleting(false); }
   };
 
   return (
@@ -83,13 +123,15 @@ export default function ServiceDetails() {
         </button>
       </div>
 
+      {error && <div role="alert" className="dashboard-card" style={{ color: "#b91c1c", marginBottom: 16 }}>{error}</div>}
+
       <div className="dashboard-card" style={{ marginBottom: 16 }}>
         <Row label={ar ? "رقم الخدمة" : "Service ID"} value={`#${service.id}`} />
-        <Row label={ar ? "اسم الخدمة" : "Service Name"} value={service.name} />
-        <Row label={ar ? "التصنيف" : "Category"} value={categoryName(service)} />
+        <Row label={ar ? "اسم الخدمة" : "Service Name"} value={displayServiceName(service.name, ar)} />
+        <Row label={ar ? "التصنيف" : "Category"} value={categoryName(service, ar)} />
         <Row label={ar ? "رقم التصنيف" : "Category ID"} value={service.category_id ?? "-"} />
 
-        <Row label={ar ? "الوصف" : "Description"} value={service.description} />
+        <Row label={ar ? "الوصف" : "Description"} value={displayServiceDescription(service.description, ar)} />
         <Row label={ar ? "السعر" : "Price"} value={formatPrice(service.price)} />
         <Row
           label={ar ? "الحالة" : "Status"}
@@ -105,13 +147,13 @@ export default function ServiceDetails() {
 
       <div className="dashboard-card" style={{ marginBottom: 16 }}>
         <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>{ar ? "الصور" : "Images"}</h3>
-        {service.images_urls?.length ? (
+        {service.images?.length ? (
           <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))" }}>
-            {service.images_urls.map((url, i) => (
+            {service.images.map((url, i) => (
               <img
                 key={`${url}-${i}`}
                 src={url}
-                alt={`${service.name} ${i + 1}`}
+                alt={`${displayServiceName(service.name, ar)} ${i + 1}`}
                 style={{ width: "100%", height: 110, objectFit: "cover", borderRadius: 10, border: "1px solid var(--border)" }}
               />
             ))}
@@ -147,8 +189,9 @@ export default function ServiceDetails() {
 
       <ConfirmDeleteServiceDialog
         open={confirmOpen}
-        onCancel={() => setConfirmOpen(false)}
+        onCancel={() => !deleting && setConfirmOpen(false)}
         onConfirm={confirmDelete}
+        isSubmitting={deleting}
       />
     </div>
   );

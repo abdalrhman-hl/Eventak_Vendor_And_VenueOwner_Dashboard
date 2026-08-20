@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Eye, ClipboardList, CheckCircle2 } from "lucide-react";
 import { useLanguage } from "../lib/language.jsx";
+import { getApiErrorMessage } from "../lib/api.js";
+import { clearAuthSession, getAuthToken } from "../lib/auth.js";
 import {
-  getVendorServices,
-  subscribeVendorServices,
+  fetchVendorServices,
   serviceStatusLabels,
   serviceStatusClass,
   categoryName,
+  displayServiceName,
   formatServiceDate,
   formatPrice,
 } from "../lib/vendorServices.js";
@@ -22,11 +24,33 @@ export default function ServiceRequests() {
   const { language } = useLanguage();
   const ar = language === "ar";
   const location = useLocation();
+  const navigate = useNavigate();
   const [filter, setFilter] = useState("all");
-  const [, force] = useState(0);
   const [flash, setFlash] = useState(location.state?.flash || "");
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  useEffect(() => subscribeVendorServices(() => force((n) => n + 1)), []);
+  useEffect(() => {
+    const controller = new AbortController();
+    const token = getAuthToken();
+    if (!token) {
+      clearAuthSession();
+      navigate("/account-type", { replace: true });
+      return () => controller.abort();
+    }
+    fetchVendorServices(token, controller.signal)
+      .then((payload) => setServices(payload.data))
+      .catch((requestError) => {
+        if (requestError?.name === "AbortError") return;
+        if (requestError?.status === 401) {
+          clearAuthSession();
+          navigate("/account-type", { replace: true });
+        } else setError(getApiErrorMessage(requestError, language));
+      })
+      .finally(() => setLoading(false));
+    return () => controller.abort();
+  }, [language, navigate]);
   useEffect(() => {
     if (!flash) return;
     const t = setTimeout(() => setFlash(""), 5000);
@@ -34,7 +58,7 @@ export default function ServiceRequests() {
   }, [flash]);
 
   // Derived from the Service model status — there is no separate requests table.
-  const requests = getVendorServices().filter(
+  const requests = services.filter(
     (s) => s.status === "pending" || s.status === "pending_delete"
   );
   const visible = filter === "all" ? requests : requests.filter((s) => s.status === filter);
@@ -61,6 +85,8 @@ export default function ServiceRequests() {
         </div>
       )}
 
+      {error && <div role="alert" className="dashboard-card" style={{ color: "#b91c1c", marginBottom: 16 }}>{error}</div>}
+
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
         {FILTERS.map((f) => {
           const active = filter === f.key;
@@ -82,7 +108,11 @@ export default function ServiceRequests() {
         })}
       </div>
 
-      {requests.length === 0 ? (
+      {loading ? (
+        <div className="dashboard-card" style={{ textAlign: "center", padding: 48 }}>
+          {ar ? "جاري تحميل طلبات الخدمات..." : "Loading service requests..."}
+        </div>
+      ) : requests.length === 0 && !error ? (
         <div className="dashboard-card" style={{ textAlign: "center", padding: 48 }}>
           <ClipboardList size={32} color="var(--muted-foreground)" />
           <h3 style={{ fontSize: 17, fontWeight: 700, marginTop: 12 }}>
@@ -120,8 +150,8 @@ export default function ServiceRequests() {
                   visible.map((s) => (
                     <tr key={s.id}>
                       <td data-label={ar ? "رقم الخدمة" : "Service ID"}>#{s.id}</td>
-                      <td data-label={ar ? "اسم الخدمة" : "Service Name"} style={{ fontWeight: 600 }}>{s.name}</td>
-                      <td data-label={ar ? "التصنيف" : "Category"}>{categoryName(s)}</td>
+                      <td data-label={ar ? "اسم الخدمة" : "Service Name"} style={{ fontWeight: 600 }}>{displayServiceName(s.name, ar)}</td>
+                      <td data-label={ar ? "التصنيف" : "Category"}>{categoryName(s, ar)}</td>
                       <td data-label={ar ? "السعر" : "Price"}>{formatPrice(s.price)}</td>
                       <td data-label={ar ? "الحالة" : "Status"}>
                         <span className={`status-badge ${serviceStatusClass[s.status]}`}>
