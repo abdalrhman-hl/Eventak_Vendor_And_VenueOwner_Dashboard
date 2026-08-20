@@ -3,10 +3,17 @@ import { useTheme } from "../lib/theme.jsx";
 import { useLanguage } from "../lib/language.jsx";
 import { getAccountType, isVenueOwnerAccountType } from "../lib/accountType.js";
 import { getProfileName, getInitials } from "../lib/profile.js";
-import { getAuthUser } from "../lib/auth.js";
-import { mockUnreadCount } from "../lib/notifications.js";
+import { clearAuthSession, getAuthToken, getAuthUser } from "../lib/auth.js";
+import {
+  fetchUnreadNotifications,
+  getLatestUnreadCount,
+  NOTIFICATION_COUNT_EVENT,
+  NOTIFICATION_REFRESH_EVENT,
+  publishUnreadCount,
+  requestNotificationListRefresh,
+} from "../lib/notifications.js";
 import { useNavigate, useLocation } from "react-router-dom";
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 
 export default function Header({ onMenuClick }) {
   const { theme, toggle } = useTheme();
@@ -16,6 +23,7 @@ export default function Header({ onMenuClick }) {
   const isVenue = isVenueOwnerAccountType(getAccountType() || "vendor");
   const [userName, setUserName] = useState(() => getProfileName());
   const [avatarUrl, setAvatarUrl] = useState(() => getAuthUser()?.avatar_url || null);
+  const [unreadCount, setUnreadCount] = useState(() => getLatestUnreadCount());
 
   useEffect(() => {
     function updateProfile() {
@@ -32,6 +40,48 @@ export default function Header({ onMenuClick }) {
     };
   }, []);
 
+  const refreshUnreadCount = useCallback(async () => {
+    const token = getAuthToken();
+    if (!token) {
+      publishUnreadCount(0);
+      return;
+    }
+
+    try {
+      const payload = await fetchUnreadNotifications(token);
+      publishUnreadCount(payload.data.length);
+      requestNotificationListRefresh();
+    } catch (error) {
+      if (error?.status === 401) {
+        clearAuthSession();
+        publishUnreadCount(0);
+        navigate("/account-type", { replace: true });
+      }
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!getAuthToken()) {
+      publishUnreadCount(0);
+      return undefined;
+    }
+
+    const handleCount = (event) => setUnreadCount(event.detail?.count || 0);
+    const refresh = () => void refreshUnreadCount();
+
+    refresh();
+    const intervalId = window.setInterval(refresh, 45_000);
+    window.addEventListener("focus", refresh);
+    window.addEventListener(NOTIFICATION_REFRESH_EVENT, refresh);
+    window.addEventListener(NOTIFICATION_COUNT_EVENT, handleCount);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener(NOTIFICATION_REFRESH_EVENT, refresh);
+      window.removeEventListener(NOTIFICATION_COUNT_EVENT, handleCount);
+    };
+  }, [refreshUnreadCount]);
+
   const displayName = userName || (isVenue
     ? (language === "ar" ? "صاحب الصالة" : "Venue Owner")
     : (language === "ar" ? "المورد" : "Vendor"));
@@ -39,8 +89,6 @@ export default function Header({ onMenuClick }) {
   const userRole = isVenue
     ? (language === "ar" ? "ملف صاحب الصالة" : "Venue Owner Profile")
     : (language === "ar" ? "ملف المورد" : "Vendor Profile");
-
-  const unreadCount = mockUnreadCount;
 
   function handleNotifClick() {
     const path = location.pathname;

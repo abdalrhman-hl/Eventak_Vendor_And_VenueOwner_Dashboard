@@ -1,4 +1,5 @@
 import { ApiError, apiRequest } from "./api.js";
+import { normalizeBackendMediaUrl } from "./media.js";
 
 const PROFILE_NAME_KEY = "eventak_profile_name";
 
@@ -16,7 +17,11 @@ function requireSuccess(payload, requireData = false) {
 
 export async function fetchUserProfile(token) {
   const payload = await apiRequest("/user/profile", { token });
-  return requireSuccess(payload, true).data;
+  const profile = requireSuccess(payload, true).data;
+  return {
+    ...profile,
+    avatar_url: normalizeBackendMediaUrl(profile.avatar_url),
+  };
 }
 
 export async function updateUserProfile(token, fields) {
@@ -37,7 +42,11 @@ export async function uploadUserAvatar(token, file) {
     token,
     body: formData,
   });
-  return requireSuccess(payload);
+  const response = requireSuccess(payload);
+  return {
+    ...response,
+    avatar_url: normalizeBackendMediaUrl(response.avatar_url),
+  };
 }
 
 export async function deleteUserAvatar(token) {

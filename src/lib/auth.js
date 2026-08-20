@@ -1,5 +1,6 @@
 import { ApiError, apiRequest } from "./api.js";
 import { clearAccountType, setAccountType } from "./accountType.js";
+import { normalizeBackendMediaUrl } from "./media.js";
 import { setProfileName } from "./profile.js";
 
 const TOKEN_KEY = "eventak-auth-token";
@@ -56,7 +57,7 @@ export function saveAuthSession(token, user) {
     id: user.id,
     name: user.name,
     role: user.role,
-    avatar_url: user.avatar_url || null,
+    avatar_url: normalizeBackendMediaUrl(user.avatar_url),
   };
 
   try {
@@ -79,7 +80,7 @@ export function syncAuthUserFromProfile(user) {
     id: user.id,
     name: user.name,
     role: user.role,
-    avatar_url: user.avatar_url || null,
+    avatar_url: normalizeBackendMediaUrl(user.avatar_url),
   };
 
   try {

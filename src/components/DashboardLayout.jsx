@@ -5,6 +5,7 @@ import Header from "./Header.jsx";
 
 export default function DashboardLayout() {
   const [open, setOpen] = useState(false);
+
   return (
     <div className="app-shell">
       <Sidebar open={open} onClose={() => setOpen(false)} />

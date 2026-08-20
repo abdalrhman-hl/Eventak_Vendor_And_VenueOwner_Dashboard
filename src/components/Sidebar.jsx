@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { LayoutDashboard, LogOut, X, Package, ClipboardList, CalendarCheck, Bell, User, Building2, FileText } from "lucide-react";
 import Logo from "./Logo.jsx";
@@ -6,6 +6,7 @@ import { useLanguage } from "../lib/language.jsx";
 import { getAccountType, isVenueOwnerAccountType } from "../lib/accountType.js";
 import { getApiErrorMessage } from "../lib/api.js";
 import { clearAuthSession, getAuthToken, logout } from "../lib/auth.js";
+import { getLatestUnreadCount, NOTIFICATION_COUNT_EVENT, publishUnreadCount } from "../lib/notifications.js";
 
 const vendorItems = [
   { to: "/vendor-dashboard", label: "Dashboard", labelAr: "لوحة التحكم", icon: LayoutDashboard },
@@ -32,6 +33,7 @@ export default function Sidebar({ open, onClose }) {
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [unreadCount, setUnreadCount] = useState(() => getLatestUnreadCount());
   const accountType = getAccountType() || "vendor";
   const isVenue = isVenueOwnerAccountType(accountType);
   const items = isVenue ? venueItems : vendorItems;
@@ -42,8 +44,15 @@ export default function Sidebar({ open, onClose }) {
   const brandSub = language === "ar" ? "لوحة التحكم" : "Dashboard";
   const homeTo = isVenue ? "/venue-dashboard" : "/vendor-dashboard";
 
+  useEffect(() => {
+    const handleCount = (event) => setUnreadCount(event.detail?.count || 0);
+    window.addEventListener(NOTIFICATION_COUNT_EVENT, handleCount);
+    return () => window.removeEventListener(NOTIFICATION_COUNT_EVENT, handleCount);
+  }, []);
+
   const finishLogout = () => {
     clearAuthSession();
+    publishUnreadCount(0);
     onClose?.();
     navigate("/account-type", { replace: true });
   };
@@ -103,6 +112,11 @@ export default function Sidebar({ open, onClose }) {
               >
                 <Icon size={18} />
                 <span>{language === "ar" ? labelAr : label}</span>
+                {to.endsWith("/notifications") && unreadCount > 0 && (
+                  <span className="notif-badge" style={{ position: "static", marginInlineStart: "auto" }}>
+                    {unreadCount}
+                  </span>
+                )}
               </Link>
             );
           })}
